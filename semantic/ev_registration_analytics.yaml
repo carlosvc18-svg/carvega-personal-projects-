@@ -1,0 +1,194 @@
+name: EV_REGISTRATION_ANALYTICS
+description: "WA Electric Vehicle Registration Analytics - adoption trends, BEV vs PHEV segmentation, county-level analysis, CAFV eligibility"
+tables:
+  - name: DIM_LOCATION
+    base_table:
+      database: EV_ANALYTICS
+      schema: GOLD
+      table: DIM_LOCATION
+    unique_keys:
+      - columns:
+          - LOCATION_KEY
+    dimensions:
+      - name: CENSUS_TRACT
+        expr: CENSUS_TRACT
+        data_type: VARCHAR(16777216)
+      - name: CITY
+        synonyms:
+          - town
+        expr: CITY
+        data_type: VARCHAR(16777216)
+      - name: COUNTY
+        synonyms:
+          - region
+          - area
+        expr: COUNTY
+        data_type: VARCHAR(16777216)
+      - name: IS_WA_REGISTRATION
+        synonyms:
+          - is_washington
+        expr: IS_WA_REGISTRATION
+        data_type: BOOLEAN
+      - name: LEGISLATIVE_DISTRICT
+        expr: LEGISLATIVE_DISTRICT
+        data_type: "NUMBER(38,0)"
+      - name: LOCATION_KEY
+        expr: LOCATION_KEY
+        data_type: VARCHAR(32)
+      - name: POSTAL_CODE
+        synonyms:
+          - zip
+          - zip_code
+        expr: POSTAL_CODE
+        data_type: VARCHAR(16777216)
+      - name: STATE
+        expr: STATE
+        data_type: VARCHAR(16777216)
+  - name: DIM_VEHICLE
+    base_table:
+      database: EV_ANALYTICS
+      schema: GOLD
+      table: DIM_VEHICLE
+    unique_keys:
+      - columns:
+          - VEHICLE_KEY
+    dimensions:
+      - name: CAFV_ELIGIBILITY
+        synonyms:
+          - eligibility
+          - incentive_eligibility
+        expr: CAFV_ELIGIBILITY
+        data_type: VARCHAR(16777216)
+      - name: ELECTRIC_RANGE
+        synonyms:
+          - range
+          - battery_range
+        expr: ELECTRIC_RANGE
+        data_type: "NUMBER(38,0)"
+      - name: EV_TYPE
+        synonyms:
+          - electric_vehicle_type
+          - powertrain
+        expr: EV_TYPE
+        data_type: VARCHAR(16777216)
+      - name: MAKE
+        synonyms:
+          - manufacturer
+          - brand
+          - OEM
+          - automaker
+        expr: MAKE
+        data_type: VARCHAR(16777216)
+      - name: MODEL
+        synonyms:
+          - vehicle_model
+          - car_model
+        expr: MODEL
+        data_type: VARCHAR(16777216)
+      - name: MODEL_YEAR
+        synonyms:
+          - year
+        description: "The correct field for year-over-year trends, growth analysis, and temporal grouping of registrations."
+        expr: MODEL_YEAR
+        data_type: "NUMBER(38,0)"
+      - name: RANGE_IS_RESEARCHED
+        synonyms:
+          - has_range_data
+        expr: RANGE_IS_RESEARCHED
+        data_type: BOOLEAN
+      - name: VEHICLE_KEY
+        expr: VEHICLE_KEY
+        data_type: VARCHAR(32)
+  - name: FACT_EV_REGISTRATION
+    base_table:
+      database: EV_ANALYTICS
+      schema: GOLD
+      table: FACT_EV_REGISTRATION
+    unique_keys:
+      - columns:
+          - DOL_VEHICLE_ID
+    dimensions:
+      - name: BASE_MSRP
+        expr: BASE_MSRP
+        data_type: "NUMBER(38,0)"
+      - name: DOL_VEHICLE_ID
+        expr: DOL_VEHICLE_ID
+        data_type: VARCHAR(16777216)
+      - name: LOCATION_KEY
+        expr: LOCATION_KEY
+        data_type: VARCHAR(32)
+      - name: MODEL_YEAR
+        synonyms:
+          - year
+          - vehicle_year
+        expr: MODEL_YEAR
+        data_type: "NUMBER(38,0)"
+      - name: REGISTRATION_KEY
+        expr: REGISTRATION_KEY
+        data_type: VARCHAR(32)
+      - name: UTILITY_KEY
+        expr: UTILITY_KEY
+        data_type: VARCHAR(32)
+      - name: VEHICLE_KEY
+        expr: VEHICLE_KEY
+        data_type: VARCHAR(32)
+      - name: VIN_PREFIX
+        expr: VIN_PREFIX
+        data_type: VARCHAR(16777216)
+    time_dimensions:
+      - name: INGESTED_AT
+        description: Pipeline ingestion timestamp. Do NOT use for year-over-year or trend analysis. Use DIM_VEHICLE.MODEL_YEAR instead.
+        expr: INGESTED_AT
+        data_type: TIMESTAMP_NTZ(9)
+relationships:
+  - name: FACT_TO_LOCATION
+    left_table: FACT_EV_REGISTRATION
+    right_table: DIM_LOCATION
+    relationship_columns:
+      - left_column: LOCATION_KEY
+        right_column: LOCATION_KEY
+  - name: FACT_TO_VEHICLE
+    left_table: FACT_EV_REGISTRATION
+    right_table: DIM_VEHICLE
+    relationship_columns:
+      - left_column: VEHICLE_KEY
+        right_column: VEHICLE_KEY
+module_custom_instructions:
+  sql_generation: "For year-over-year (YoY), growth trends, or any temporal analysis of registrations, ALWAYS use DIM_VEHICLE.MODEL_YEAR — never INGESTED_AT. INGESTED_AT is only a pipeline metadata timestamp and does not represent when the vehicle was registered. Always apply DIM_LOCATION.IS_WA_REGISTRATION = TRUE unless the user explicitly asks about all states. When computing average electric range, always filter to DIM_VEHICLE.RANGE_IS_RESEARCHED = TRUE to exclude 0-value placeholders. MAKE values are always UPPERCASE. EV_TYPE contains full descriptive text — use LIKE for partial matching. Never use BASE_MSRP (97% NULL)."
+verified_queries:
+  - name: YOY_GROWTH
+    sql: "SELECT v.MODEL_YEAR, COUNT(f.REGISTRATION_KEY) AS registrations FROM fact_ev_registration AS f JOIN dim_vehicle AS v ON f.VEHICLE_KEY = v.VEHICLE_KEY JOIN dim_location AS l ON f.LOCATION_KEY = l.LOCATION_KEY WHERE l.IS_WA_REGISTRATION = TRUE GROUP BY v.MODEL_YEAR ORDER BY v.MODEL_YEAR"
+    question: How many electric vehicle registrations occurred in Washington state by model year?
+    verified_at: 1785962053
+    verified_by: Semantic Model Generator
+    use_as_onboarding_question: false
+  - name: YOY_GROWTH_PCT
+    sql: "SELECT v.MODEL_YEAR, COUNT(f.REGISTRATION_KEY) AS registrations, LAG(COUNT(f.REGISTRATION_KEY)) OVER (ORDER BY v.MODEL_YEAR) AS prev_year_registrations, ROUND(100.0 * (COUNT(f.REGISTRATION_KEY) - LAG(COUNT(f.REGISTRATION_KEY)) OVER (ORDER BY v.MODEL_YEAR)) / NULLIF(LAG(COUNT(f.REGISTRATION_KEY)) OVER (ORDER BY v.MODEL_YEAR), 0), 1) AS yoy_growth_pct FROM fact_ev_registration AS f JOIN dim_vehicle AS v ON f.VEHICLE_KEY = v.VEHICLE_KEY JOIN dim_location AS l ON f.LOCATION_KEY = l.LOCATION_KEY WHERE l.IS_WA_REGISTRATION = TRUE GROUP BY v.MODEL_YEAR ORDER BY v.MODEL_YEAR"
+    question: What is the year-over-year growth trend in EV registrations?
+    verified_at: 1785962053
+    verified_by: CoCo
+    use_as_onboarding_question: false
+  - name: TOP_COUNTIES
+    sql: "SELECT l.COUNTY, COUNT(f.REGISTRATION_KEY) AS registrations FROM fact_ev_registration AS f JOIN dim_vehicle AS v ON f.VEHICLE_KEY = v.VEHICLE_KEY JOIN dim_location AS l ON f.LOCATION_KEY = l.LOCATION_KEY WHERE l.IS_WA_REGISTRATION = TRUE GROUP BY l.COUNTY ORDER BY registrations DESC LIMIT 20"
+    question: Which Washington counties have the most electric vehicle registrations?
+    verified_at: 1785962053
+    verified_by: Semantic Model Generator
+    use_as_onboarding_question: false
+  - name: BEV_VS_PHEV
+    sql: "SELECT v.EV_TYPE, COUNT(f.REGISTRATION_KEY) AS registrations FROM fact_ev_registration AS f JOIN dim_vehicle AS v ON f.VEHICLE_KEY = v.VEHICLE_KEY JOIN dim_location AS l ON f.LOCATION_KEY = l.LOCATION_KEY WHERE l.IS_WA_REGISTRATION = TRUE GROUP BY v.EV_TYPE ORDER BY registrations DESC"
+    question: What is the breakdown of electric vehicle registrations by type in Washington state?
+    verified_at: 1785962053
+    verified_by: Semantic Model Generator
+    use_as_onboarding_question: false
+  - name: TESLA_SHARE
+    sql: "SELECT l.COUNTY, COUNT(*) AS total, SUM(IFF(v.MAKE = 'TESLA', 1, 0)) AS tesla FROM fact_ev_registration AS f JOIN dim_vehicle AS v ON f.VEHICLE_KEY = v.VEHICLE_KEY JOIN dim_location AS l ON f.LOCATION_KEY = l.LOCATION_KEY WHERE l.IS_WA_REGISTRATION = TRUE GROUP BY l.COUNTY HAVING COUNT(*) >= 10 ORDER BY tesla DESC"
+    question: What is Tesla market share by county in Washington state?
+    verified_at: 1785962053
+    verified_by: Semantic Model Generator
+    use_as_onboarding_question: false
+  - name: CAFV_ELIGIBILITY
+    sql: "SELECT v.CAFV_ELIGIBILITY, COUNT(*) AS cnt FROM fact_ev_registration AS f JOIN dim_vehicle AS v ON f.VEHICLE_KEY = v.VEHICLE_KEY JOIN dim_location AS l ON f.LOCATION_KEY = l.LOCATION_KEY WHERE l.IS_WA_REGISTRATION = TRUE GROUP BY v.CAFV_ELIGIBILITY ORDER BY cnt DESC"
+    question: How are Washington state electric vehicle registrations distributed by CAFV eligibility status?
+    verified_at: 1785962053
+    verified_by: Semantic Model Generator
+    use_as_onboarding_question: false
