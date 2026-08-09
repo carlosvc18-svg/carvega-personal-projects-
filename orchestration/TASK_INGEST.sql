@@ -1,0 +1,15 @@
+create or replace task EV_ANALYTICS.GOVERNANCE.TASK_INGEST
+	warehouse=WH_EV_DEMO
+	schedule='USING CRON 0 6 * * * America/Chicago'
+	SUSPEND_TASK_AFTER_NUM_FAILURES=3
+	as COPY INTO EV_ANALYTICS.BRONZE.EV_RAW (raw_record, file_name, file_row_number, batch_id)
+  FROM (
+    SELECT
+      $1,
+      METADATA$FILENAME,
+      METADATA$FILE_ROW_NUMBER,
+      'batch_' || TO_CHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD_HH24MISS')
+    FROM @EV_ANALYTICS.BRONZE.RAW_STAGE
+      (FILE_FORMAT => 'EV_ANALYTICS.BRONZE.FF_JSON', PATTERN => '.*\\.json')
+  )
+  PURGE = FALSE;
