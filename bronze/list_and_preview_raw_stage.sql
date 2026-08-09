@@ -1,0 +1,8 @@
+-- List files on stage
+LIST @EV_ANALYTICS.BRONZE.RAW_STAGE;
+
+-- Peek at the data
+SELECT *
+FROM @EV_ANALYTICS.BRONZE.RAW_STAGE/ElectricVehiclePopulationData.json
+(FILE_FORMAT => 'EV_ANALYTICS.BRONZE.FF_JSON')
+LIMIT 5;
